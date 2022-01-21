@@ -10,7 +10,6 @@ package freetype // import "github.com/golang/freetype"
 
 import (
 	"errors"
-	"fmt"
 	"image"
 	"image/draw"
 
@@ -45,7 +44,6 @@ type cacheEntry struct {
 // It is provided here so that code that imports this package doesn't need
 // to also include the freetype/truetype package.
 func ParseFont(b []byte) (*truetype.Font, error) {
-	fmt.Printf("parsefont")
 	return truetype.Parse(b)
 }
 
@@ -200,7 +198,6 @@ func (c *Context) rasterize(glyph truetype.Index, fx, fy fixed.Int26_6) (
 func (c *Context) glyph(glyph truetype.Index, p fixed.Point26_6) (
 	fixed.Int26_6, *image.Alpha, image.Point, error) {
 
-	fmt.Println("glyph index ", glyph)
 	// Split p.X and p.Y into their integer and fractional parts.
 	ix, fx := int(p.X>>6), p.X&0x3f
 	iy, fy := int(p.Y>>6), p.Y&0x3f
