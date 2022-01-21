@@ -461,7 +461,7 @@ func (f *Font) Name(id NameID) string {
 	return string(dst)
 }
 
-// Index returns a Font's index for the given rune.
+// HasShortCmap returns true if font use simple encoding.
 func (f *Font) HasShortCmap() bool {
 	return f.hasShortCmap
 }
