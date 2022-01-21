@@ -134,7 +134,7 @@ func parseSubtables(table []byte, name string, offset, size int, pred func([]byt
 	if len(table) < size*nSubtables+offset {
 		return 0, 0, FormatError(name + " too short")
 	}
-	ok := false
+	bestScore := -1
 	for i := 0; i < nSubtables; i, offset = i+1, offset+size {
 		if pred != nil && !pred(table[offset:]) {
 			continue
@@ -144,21 +144,24 @@ func parseSubtables(table []byte, name string, offset, size int, pred func([]byt
 		pidPsid := u32(table, offset)
 		// We prefer the Unicode cmap encoding. Failing to find that, we fall
 		// back onto the Microsoft cmap encoding.
-		if pidPsid == macintoshSimpleEncoding {
-			bestOffset, bestPID, ok = offset, pidPsid>>16, true
-			break
-		} else if pidPsid == unicodeEncodingBMPOnly || pidPsid == unicodeEncodingFull {
-			bestOffset, bestPID, ok = offset, pidPsid>>16, true
-			break
+		// And we prefer full/UCS4 encoding over BMP/UCS2. So the priority goes:
+		//    unicodeEncodingFull > macintoshSimpleEncoding > microsoftUCS4Encoding > unicodeEncodingBMPOnly > macintoshSimpleEncoding > microsoftUCS2Encoding > microsoftSymbolEncoding
+		// It is in accord with the Psid part.
+		score := int(pidPsid & 0xFFFF)
+		if score <= bestScore {
+			continue
+		}
+		if pidPsid == unicodeEncodingBMPOnly || pidPsid == unicodeEncodingFull {
+			bestOffset, bestPID, bestScore = offset, pidPsid>>16, score
+		} else if pidPsid == macintoshSimpleEncoding {
+			bestOffset, bestPID, bestScore = offset, pidPsid>>16, score
 		} else if pidPsid == microsoftSymbolEncoding ||
 			pidPsid == microsoftUCS2Encoding ||
 			pidPsid == microsoftUCS4Encoding {
-
-			bestOffset, bestPID, ok = offset, pidPsid>>16, true
-			// We don't break out of the for loop, so that Unicode can override Microsoft.
+			bestOffset, bestPID, bestScore = offset, pidPsid>>16, score
 		}
 	}
-	if !ok {
+	if bestScore < 0 {
 		return 0, 0, UnsupportedError(name + " encoding")
 	}
 	return bestOffset, bestPID, nil
@@ -195,6 +198,7 @@ type Font struct {
 	maxTwilightPoints, maxStorage, maxFunctionDefs, maxStackElements uint16
 	// USD-162 issue, cmap glyph id array.
 	cmGlyphIDArray []uint8
+	hasShortCmap   bool
 }
 
 func (f *Font) parseCmap() error {
@@ -222,6 +226,7 @@ func (f *Font) parseCmap() error {
 			glyphIDArray[i] = f.cmap[offset+6+i]
 		}
 		f.cmGlyphIDArray = glyphIDArray
+		f.hasShortCmap = true
 		return nil
 	case cmapFormat4:
 		language := u16(f.cmap, offset+4)
@@ -404,7 +409,6 @@ func (f *Font) FUnitsPerEm() int32 {
 // Index returns a Font's index for the given rune.
 func (f *Font) Index(x rune) Index {
 	c := uint32(x)
-	fmt.Printf("Index: c: %d, len: %d\n", c, len(f.cmGlyphIDArray))
 	if len(f.cmGlyphIDArray) > int(c) {
 		val := f.cmGlyphIDArray[c]
 		return Index(val)
@@ -455,6 +459,11 @@ func (f *Font) Name(id NameID) string {
 		}
 	}
 	return string(dst)
+}
+
+// Index returns a Font's index for the given rune.
+func (f *Font) HasShortCmap() bool {
+	return f.hasShortCmap
 }
 
 func printable(r uint16) byte {
