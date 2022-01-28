@@ -155,8 +155,9 @@ func parseSubtables(table []byte, name string, offset, size int, pred func([]byt
 			bestOffset, bestPID, bestScore = offset, pidPsid>>16, score
 		} else if pidPsid == macintoshSimpleEncoding {
 			bestOffset, bestPID, bestScore = offset, pidPsid>>16, score
-		} else if pidPsid == microsoftSymbolEncoding ||
-			pidPsid == microsoftUCS2Encoding ||
+		} else if pidPsid == microsoftSymbolEncoding {
+			bestOffset, bestPID, bestScore = offset, pidPsid>>16, score
+		} else if pidPsid == microsoftUCS2Encoding ||
 			pidPsid == microsoftUCS4Encoding {
 			bestOffset, bestPID, bestScore = offset, pidPsid>>16, score
 		}
@@ -198,6 +199,7 @@ type Font struct {
 	maxTwilightPoints, maxStorage, maxFunctionDefs, maxStackElements uint16
 	// USD-162 issue, cmap glyph id array.
 	cmGlyphIDArray []uint8
+	charcodeToGID  map[uint8]uint32
 	hasShortCmap   bool
 }
 
@@ -258,6 +260,48 @@ func (f *Font) parseCmap() error {
 			offset += 2
 		}
 		f.cmapIndexes = f.cmap[offset:]
+
+		// If unable to parse cmap correctly, use unitype cmap parse implementation.
+		if len(f.cmapIndexes) < 1 {
+			charcodeMap := make(map[uint8]uint32, f.nGlyph)
+
+			for i := 0; i < segCount; i++ {
+				c1 := f.cm[i].start
+				c2 := f.cm[i].end
+				d := f.cm[i].delta
+				rangeOffset := f.cm[i].offset
+
+				for c := c1; c <= c2; c++ {
+					var gid uint32
+
+					if rangeOffset == 0 {
+						gid = (c + d) & 0xFFFF
+					} else {
+						index := int(uint16(rangeOffset)/2 + (uint16(c) - uint16(c1)) + uint16(i) - uint16(offset))
+
+						if index >= len(f.charcodeToGID) {
+							return FormatError("out of bounds")
+						}
+						if f.charcodeToGID[uint8(index)] != 0 {
+							gid = (f.charcodeToGID[uint8(index)] + d) & 0xFFFF
+						} else {
+							gid = 0
+						}
+					}
+
+					if gid > 0 {
+						//b := runeDecoder.ToBytes(uint32(c))
+						//r := runeDecoder.DecodeRune(b)
+						if int(gid) >= int(f.nGlyph) {
+							return FormatError("out of bounds")
+						}
+						b := byte(c)
+						charcodeMap[b] = gid
+					}
+				}
+			}
+			f.charcodeToGID = charcodeMap
+		}
 		return nil
 
 	case cmapFormat12:
@@ -413,6 +457,12 @@ func (f *Font) Index(x rune) Index {
 		val := f.cmGlyphIDArray[c]
 		return Index(val)
 	}
+
+	if len(f.charcodeToGID) > 0 {
+		val := f.charcodeToGID[uint8(c)]
+		return Index(val)
+	}
+
 	for i, j := 0, len(f.cm); i < j; {
 		h := i + (j-i)/2
 		cm := &f.cm[h]
