@@ -290,8 +290,6 @@ func (f *Font) parseCmap() error {
 					}
 
 					if gid > 0 {
-						//b := runeDecoder.ToBytes(uint32(c))
-						//r := runeDecoder.DecodeRune(b)
 						if int(gid) >= int(f.nGlyph) {
 							return FormatError("out of bounds")
 						}
@@ -303,7 +301,6 @@ func (f *Font) parseCmap() error {
 			f.charcodeToGID = charcodeMap
 		}
 		return nil
-
 	case cmapFormat12:
 		if u16(f.cmap, offset+2) != 0 {
 			return FormatError(fmt.Sprintf("cmap format: % x", f.cmap[offset:offset+4]))
